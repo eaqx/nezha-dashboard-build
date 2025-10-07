@@ -1,0 +1,103 @@
+name: Release
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'version'
+        required: true
+jobs:
+  prepare:
+    name: Prepare
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    container:
+      image: goreleaser/goreleaser-cross:v1.24
+    steps:
+      - name: Update and prepare
+        run: |
+          apt update
+          apt install unzip -y
+          apt install zip -y
+          apt install curl -y
+          wget https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64 -O /usr/bin/yq
+          chmod +x /usr/bin/yq
+      - name: Add safe directory
+        run: git config --global --add safe.directory /__w/nezha/nezha
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          repository: nezhahq/nezha
+          ref: v${{ github.event.inputs.version }}
+          fetch-depth: 0
+      - name: Prepare frontend
+        run: |
+          chmod +x ./script/fetch-frontends.sh
+          ./script/fetch-frontends.sh
+      - name: Download geoip database
+        run: |
+          rm pkg/geoip/geoip.db
+          wget -qO pkg/geoip/geoip.db https://ipinfo.io/data/free/country.mmdb?token=4a5b9d374f186f
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.24.x"
+      - name: Generate swagger docs
+        run: |
+          go install github.com/swaggo/swag/cmd/swag@latest
+          swag init --pd -d . -g ./cmd/dashboard/main.go -o ./cmd/dashboard/docs --parseGoList=false
+      - name: Compress file
+        run: zip -r nezha.zip .
+      - name: Create Release
+        uses: ncipollo/release-action@v1
+        with:
+          allowUpdates: true
+          artifacts: "nezha.zip"
+          generateReleaseNotes: true
+          removeArtifacts: true
+          tag: v${{ github.event.inputs.version }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    needs: 
+      - prepare
+    steps:
+      - name: Setup VM and Build
+        uses: vmactions/freebsd-vm@v1
+        with:
+          usesh: true
+          release: 14.1
+          prepare: |
+            pkg install -y wget
+            pkg install -y gcc
+            pkg install -y unzip
+            pkg install -y zip
+            pkg install -y bash
+          run: |
+            wget https://go.dev/dl/go1.24.0.freebsd-amd64.tar.gz
+            rm -rf /usr/local/go
+            tar -C /usr/local -xzf go1.24.0.freebsd-amd64.tar.gz
+            export PATH=$PATH:/usr/local/go/bin       
+            mkdir -p nezha
+            cd nezha
+            wget https://github.com/eaqx/nezha-dashboard-build/releases/download/v${{ github.event.inputs.version }}/nezha.zip
+            unzip nezha.zip
+            cd cmd/dashboard
+            go mod tidy
+            go build -ldflags="-s -w --extldflags '-static -fpic' -X github.com/naiba/nezha/service/singleton.Version=${{ github.event.inputs.version }}"
+            mkdir -p ../../output
+            mv dashboard ../../output/dashboard-freebsd-amd64
+            cd ../../output
+            zip -r dashboard-freebsd-amd64.zip dashboard-freebsd-amd64
+            rm dashboard-freebsd-amd64
+      - name: Create Release
+        uses: ncipollo/release-action@v1
+        with:
+          allowUpdates: true
+          artifacts: "nezha/output/*"
+          removeArtifacts: true
+          tag: v${{ github.event.inputs.version }}
+          token: ${{ secrets.GITHUB_TOKEN }}
