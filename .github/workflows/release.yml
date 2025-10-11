@@ -41,7 +41,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: "1.24.x"
+          go-version: "1.25.x"
       - name: Generate swagger docs
         run: |
           go install github.com/swaggo/swag/cmd/swag@latest
@@ -77,9 +77,9 @@ jobs:
             pkg install -y zip
             pkg install -y bash
           run: |
-            wget https://go.dev/dl/go1.24.0.freebsd-amd64.tar.gz
+            wget https://go.dev/dl/go1.25.2.freebsd-amd64.tar.gz
             rm -rf /usr/local/go
-            tar -C /usr/local -xzf go1.24.0.freebsd-amd64.tar.gz
+            tar -C /usr/local -xzf go1.25.2.freebsd-amd64.tar.gz
             export PATH=$PATH:/usr/local/go/bin       
             mkdir -p nezha
             cd nezha
